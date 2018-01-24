@@ -1,0 +1,480 @@
+pragma solidity ^0.4.16;
+
+contract owned {
+    address public owner;
+
+    function owned() public {
+        owner = msg.sender;
+    }
+
+    modifier onlyOwner {
+        require(msg.sender == owner);
+        _;
+    }
+
+    function transferOwnership(address newOwner) onlyOwner public {
+        owner = newOwner;
+    }
+}
+
+interface tokenRecipient { function receiveApproval(address _from, uint256 _value, address _token, bytes _extraData) public; }
+
+contract TokenERC20 {
+    // Public variables of the token
+    string public name;
+    string public symbol;
+    uint8 public decimals = 4;
+    // 4 decimals is the strongly suggested default, avoid changing it
+    uint256 public totalSupply;
+
+    // This creates an array with all balances
+    mapping (address => uint256) public balanceOf;
+    mapping (address => mapping (address => uint256)) public allowance;
+
+    // This generates a public event on the blockchain that will notify clients
+    event Transfer(address indexed from, address indexed to, uint256 value);
+
+    // This notifies clients about the amount burnt
+    event Burn(address indexed from, uint256 value);
+
+    /**
+     * Constrctor function
+     *
+     * Initializes contract with initial supply tokens to the creator of the contract
+     */
+    function TokenERC20(
+        uint256 initialSupply,
+        string tokenName,
+        string tokenSymbol
+    ) public {
+        totalSupply = initialSupply * 10**uint(decimals);  // Update total supply with the decimal amount
+        balanceOf[msg.sender] = totalSupply;                // Give the creator all initial tokens
+        name = tokenName;                                   // Set the name for display purposes
+        symbol = tokenSymbol;                               // Set the symbol for display purposes
+    }
+
+    /**
+     * Internal transfer, only can be called by this contract
+     */
+    function _transfer(address _from, address _to, uint _value) internal {
+        // Prevent transfer to 0x0 address. Use burn() instead
+        require(_to != 0x0);
+        // Check if the sender has enough
+        require(balanceOf[_from] >= _value);
+        // Check for overflows
+        require(balanceOf[_to] + _value > balanceOf[_to]);
+        // Save this for an assertion in the future
+        uint previousBalances = balanceOf[_from] + balanceOf[_to];
+        // Subtract from the sender
+        balanceOf[_from] -= _value;
+        // Add the same to the recipient
+        balanceOf[_to] += _value;
+        Transfer(_from, _to, _value);
+        // Asserts are used to use static analysis to find bugs in your code. They should never fail
+        assert(balanceOf[_from] + balanceOf[_to] == previousBalances);
+    }
+
+    /**
+     * Transfer tokens
+     *
+     * Send `_value` tokens to `_to` from your account
+     *
+     * @param _to The address of the recipient
+     * @param _value the amount to send
+     */
+    function transfer(address _to, uint256 _value) public {
+        _transfer(msg.sender, _to, _value);
+    }
+
+    /**
+     * Transfer tokens from other address
+     *
+     * Send `_value` tokens to `_to` in behalf of `_from`
+     *
+     * @param _from The address of the sender
+     * @param _to The address of the recipient
+     * @param _value the amount to send
+     */
+    function transferFrom(address _from, address _to, uint256 _value) public returns (bool success) {
+        require(_value <= allowance[_from][msg.sender]);     // Check allowance
+        allowance[_from][msg.sender] -= _value;
+        _transfer(_from, _to, _value);
+        return true;
+    }
+
+    /**
+     * Set allowance for other address
+     *
+     * Allows `_spender` to spend no more than `_value` tokens in your behalf
+     *
+     * @param _spender The address authorized to spend
+     * @param _value the max amount they can spend
+     */
+    function approve(address _spender, uint256 _value) public
+        returns (bool success) {
+        allowance[msg.sender][_spender] = _value;
+        return true;
+    }
+
+    /**
+     * Set allowance for other address and notify
+     *
+     * Allows `_spender` to spend no more than `_value` tokens in your behalf, and then ping the contract about it
+     *
+     * @param _spender The address authorized to spend
+     * @param _value the max amount they can spend
+     * @param _extraData some extra information to send to the approved contract
+     */
+    function approveAndCall(address _spender, uint256 _value, bytes _extraData)
+        public
+        returns (bool success) {
+        tokenRecipient spender = tokenRecipient(_spender);
+        if (approve(_spender, _value)) {
+            spender.receiveApproval(msg.sender, _value, this, _extraData);
+            return true;
+        }
+    }
+
+    /**
+     * Destroy tokens
+     *
+     * Remove `_value` tokens from the system irreversibly
+     *
+     * @param _value the amount of money to burn
+     */
+    function burn(uint256 _value) public returns (bool success) {
+        require(balanceOf[msg.sender] >= _value);   // Check if the sender has enough
+        balanceOf[msg.sender] -= _value;            // Subtract from the sender
+        totalSupply -= _value;                      // Updates totalSupply
+        Burn(msg.sender, _value);
+        return true;
+    }
+
+    /**
+     * Destroy tokens from other account
+     *
+     * Remove `_value` tokens from the system irreversibly on behalf of `_from`.
+     *
+     * @param _from the address of the sender
+     * @param _value the amount of money to burn
+     */
+    function burnFrom(address _from, uint256 _value) public returns (bool success) {
+        require(balanceOf[_from] >= _value);                // Check if the targeted balance is enough
+        require(_value <= allowance[_from][msg.sender]);    // Check allowance
+        balanceOf[_from] -= _value;                         // Subtract from the targeted balance
+        allowance[_from][msg.sender] -= _value;             // Subtract from the sender's allowance
+        totalSupply -= _value;                              // Update totalSupply
+        Burn(_from, _value);
+        return true;
+    }
+}
+
+/******************************************/
+/*       GUIDE TOKEN STARTS HERE       */
+/******************************************/
+
+contract GuideToken is owned, TokenERC20 {
+
+    uint256 public sellPrice;
+    uint256 public buyPrice;
+
+    mapping (address => bool) public frozenAccount;
+
+    /* This generates a public event on the blockchain that will notify clients */
+    event FrozenFunds(address target, bool frozen);
+
+    /* Initializes contract with initial supply tokens to the creator of the contract */
+    function GuideToken(
+        uint256 initialSupply,
+        string tokenName,
+        string tokenSymbol
+    ) TokenERC20(initialSupply, tokenName, tokenSymbol) public {}
+
+    /* Internal transfer, only can be called by this contract */
+    function _transfer(address _from, address _to, uint _value) internal {
+        require (_to != 0x0);                               // Prevent transfer to 0x0 address. Use burn() instead
+        require (balanceOf[_from] >= _value);               // Check if the sender has enough
+        require (balanceOf[_to] + _value > balanceOf[_to]); // Check for overflows
+        require(!frozenAccount[_from]);                     // Check if sender is frozen
+        require(!frozenAccount[_to]);                       // Check if recipient is frozen
+        balanceOf[_from] -= _value;                         // Subtract from the sender
+        balanceOf[_to] += _value;                           // Add the same to the recipient
+        Transfer(_from, _to, _value);
+    }
+
+
+    function transfer(address _to, uint256 _value) public {
+        _transfer(msg.sender, _to, _value);
+    }
+
+	
+	/// @notice Create `mintedAmount` tokens and send it to `target`
+    /// @param target Address to receive the tokens
+    /// @param mintedAmount the amount of tokens it will receive
+    function mintToken(address target, uint256 mintedAmount) onlyOwner public {
+        balanceOf[target] += mintedAmount;
+        totalSupply += mintedAmount;
+        Transfer(0, this, mintedAmount);
+        Transfer(this, target, mintedAmount);
+    }
+
+    /// @notice `freeze? Prevent | Allow` `target` from sending & receiving tokens
+    /// @param target Address to be frozen
+    /// @param freeze either to freeze it or not
+    function freezeAccount(address target, bool freeze) onlyOwner public {
+        frozenAccount[target] = freeze;
+        FrozenFunds(target, freeze);
+    }
+
+    /// @notice Allow users to buy tokens for `newBuyPrice` eth and sell tokens for `newSellPrice` eth
+    /// @param newSellPrice Price the users can sell to the contract
+    /// @param newBuyPrice Price users can buy from the contract
+    function setPrices(uint256 newSellPrice, uint256 newBuyPrice) onlyOwner public {
+        sellPrice = newSellPrice;
+        buyPrice = newBuyPrice;
+    }
+
+    /// @notice Buy tokens from contract by sending ether
+    function buy() payable public {
+        uint amount = msg.value / buyPrice;               // calculates the amount
+        _transfer(this, msg.sender, amount);              // makes the transfers
+    }
+
+    /// @notice Sell `amount` tokens to contract
+    /// @param amount amount of tokens to be sold
+    function sell(uint256 amount) public {
+        require(this.balance >= amount * sellPrice);      // checks if the contract has enough ether to buy
+        _transfer(msg.sender, this, amount);              // makes the transfers
+        msg.sender.transfer(amount * sellPrice);          // sends ether to the seller. It's important to do this last to avoid recursion attacks
+    }
+
+
+}
+
+
+
+
+
+
+
+// ///////////////////////////////////////////////////////////////////
+// Guide Crowd Sale(クラウドセール)
+contract GuideCrowdSale is owned {
+  // State Variables(状態変数)
+  uint256 public fundingGoal;       // Target Amout(目標金額)
+  uint256 public deadline;          // Expiration(期限)
+  uint256 public basePrice;             // Token Base basePrice(トークンの基準価格)
+  uint256 public transferableToken; // Tokens that can be forwarded(転送可能トークン)
+  uint256 public soldToken;         // Pre-SOLD Tokens(販売済みトークン)
+  uint256 public startTime;         // Start time(開始時刻)
+  GuideToken public GuideTokenRename;     // Tokens used for payment(支払いに使用するトークン)
+  bool public fundingGoalReached;   // Goal Achievement Flag(目標到達フラグ)
+  bool public isOpened;             // Clowd Sale Open Flag(クラウドセールオープンフラグ)
+  mapping (address => Property) public fundersProperty;   // Financial provider Asset infomation(資金提供者の資産情報)
+
+  // Structure of asset infomation(資産情報構造体)
+  struct Property {
+    uint256 paymentEther;     // Paid ETH(支払ったETH)
+    uint256 reservedToken;    // Token to receive(受け取るトークン)
+    bool withdrawed;          // Drawer flag(引き出し済みフラグ)
+  }
+
+  // Event notification(イベント通知)
+  event CrowdsaleStart(uint fundingGoal, uint deadline, uint transferableToken, address beneficiary);
+  event ReservedToken(address backer, uint amount, uint token);
+  event CheckGoalReached(address beneficiary, uint fundingGoal, uint amountRaised, bool reached, uint raisedToken);
+  event WithdrawalToken(address addr, uint amount, bool result);
+  event WithdrawalEther(address addr, uint amount, bool result);
+
+  // Modifier(修飾子)
+  modifier afterDeadline() { if (now >= deadline) _; }
+
+  // ************** function *****************
+  // Constract
+  function GuideCrowdSale (
+    uint _fundingGoalInEthers,
+    uint _transferableToken,
+    uint _amountOfTokenPerEther,
+    GuideToken _addressOfTokenUsedAsReward
+  ) {
+    _amountOfTokenPerEther = _amountOfTokenPerEther;
+  	
+    fundingGoal = _fundingGoalInEthers * 1 ether;
+    basePrice = 1 ether / _amountOfTokenPerEther;
+    transferableToken = _transferableToken;
+    GuideTokenRename = GuideToken(_addressOfTokenUsedAsReward); // cast:GuideToken
+  }
+
+
+  // ************** function *****************
+  // Receive ETH(無名関数(ETH受け取り))
+  function () payable {
+    // Ignore if before or expired(開始前または期限切れの場合は例外)
+    if (!isOpened || now < startTime || now >= deadline) revert();
+    // 0.1ETH以下であれば購入させない
+    else if(msg.value < 100000000000000000) revert();
+
+    // Received ETH and Planned Sales ETH(受け取ったETHと販売予定トークン)
+    uint amount = msg.value;
+    uint token = amount / basePrice * (100 + currentSwapRate()) / 100;
+  	
+    // Check for a sales plan token(Exception if the number of appointments is greater then)
+    // (販売予定トークンの確認(予定数を超える場合は例外))
+    if (token == 0 || soldToken + token > transferableToken) revert();
+  	
+    // Update funders information(資金提供者の資産情報を更新する)
+    fundersProperty[msg.sender].paymentEther += amount;
+    fundersProperty[msg.sender].reservedToken += token;
+    soldToken += token;
+    ReservedToken(msg.sender, amount, token);
+  }
+
+  // ************** function *****************
+  // start(If it's within a few expected number, start)
+  // (開始(トークンが予定数以上あるなら開始))
+  	function start(uint _durationInDays) onlyOwner {
+    if (fundingGoal == 0
+    	|| basePrice == 0
+    	|| transferableToken == 0
+        || GuideTokenRename == address(0)
+    	|| _durationInDays == 0
+    	|| startTime != 0
+    	|| owner != msg.sender
+    )
+    {
+      revert();
+    }
+  	
+  	// コイン上限以下のセール用上限コインが設定されていればスタートする
+    if (GuideTokenRename.balanceOf(this) >= transferableToken) {
+	startTime = 1517461200; // 2018-02-01 00:00:00 NY
+      deadline = startTime + _durationInDays * 1 days;
+      isOpened = true;
+      CrowdsaleStart(fundingGoal, deadline, transferableToken, owner);
+	
+    }
+  }
+
+
+  // ************** function *****************
+  // Exchange rate(Special Price in time zone)
+  // (交換レート(開始時刻からの経過時間が小さいほどお得))
+  function currentSwapRate() constant returns(uint) {
+    // 1 days
+  	if (startTime + 1440 minutes > now) {
+      return 20; // 20%
+    }
+  	// 2 days
+  	else if (startTime + 2880 minutes > now) {
+      return 15; // 15%
+    }
+  	// etc
+  	else {
+      return 10; // 10%
+    }
+  }
+
+  // ************** function *****************
+  // Remaining time(minute) and Defference from target(eth), check token method
+  // (残り時間(分単位)と目標との差額(eth単位),トークン確認用メソッド)
+  function getRemainingTimeEthToken()
+    constant returns(uint min, uint shortage, uint remainToken)
+  {
+    if(now < deadline) {
+      min = (deadline - now) / (1 minutes);
+    }
+    shortage = (fundingGoal - this.balance) / (1 ether);
+    remainToken = transferableToken - soldToken;
+  }
+
+  // ************** function *****************
+  // Final reach confirmation(Available after period)
+  // (目標到達確認(期限後に実施可能))
+  function checkGoalReached() afterDeadline {
+    if (isOpened && now >= deadline && owner == msg.sender) {
+      // 集まったETHと目標ETHを比較
+      if (this.balance >= fundingGoal) {
+        fundingGoalReached = true;
+      }
+      isOpened = false;
+      CheckGoalReached(owner, fundingGoal, this.balance, fundingGoalReached, soldToken);
+    }
+  }
+
+  // ************** function *****************
+  // (12) オーナー用の引き出しメソッド(セール終了後に実行可能)
+  function withdrawalOwner() onlyOwner {
+    // Ignore if before or expired(開始前または期限切れの場合は例外)
+    if (isOpened || now < deadline || owner != msg.sender) revert();
+
+    // 目標達成：etherと余ったトークン
+    if (fundingGoalReached) {
+      // ether
+      uint amount = this.balance;
+      if (amount > 0) {
+        // 成立したイーサをオーナーに移す
+        bool ok = msg.sender.call.value(amount)();
+        // イベントを発火
+        WithdrawalEther(msg.sender, amount, ok);
+      }
+      // 余ったトークン ### ここの条件あたりが問題部分 ###
+    	uint val = transferableToken - soldToken;
+      if (val > 0) {
+      	// 余ったトークンはオーナーに戻す
+      	GuideTokenRename.transfer(msg.sender, val);
+        WithdrawalToken(msg.sender, val, true); // 余ったコインがオーナー宛てに送られたことを処理通知
+      }
+    // 目標未達：トークン
+    } else {
+      // トークン
+      uint val2 = GuideTokenRename.balanceOf(this);
+      // トークンをオーナー宛に戻す
+      GuideTokenRename.transfer(msg.sender, val);
+      WithdrawalToken(msg.sender, val2, true); // オーナー宛てに処理通知
+    }
+  }
+
+  
+  // ************** function *****************
+  // (13) 資金提供者用の引き出しメソッド(セール終了後に実行可能)
+  function withdrawal() {
+    // Ignore if before or expired(開始前または期限切れの場合は例外)
+    if (isOpened || now < deadline) revert();
+
+    // 既に引き出し済みの場合は例外を投げる
+    if (fundersProperty[msg.sender].withdrawed) revert();
+    // 目標達成：トークン
+    if (fundingGoalReached) {
+      // GUIDE COINを保有している場合は処理する
+      if (fundersProperty[msg.sender].reservedToken > 0) {
+        // GUIDE COINを資金提供者に送金する
+        GuideTokenRename.transfer(msg.sender, fundersProperty[msg.sender].reservedToken);
+        
+        // 引き出し処理済みとする
+        fundersProperty[msg.sender].withdrawed = true;
+        
+        // 資金提供者 宛てに処理通知
+        WithdrawalToken(
+          msg.sender,
+          fundersProperty[msg.sender].reservedToken,
+          fundersProperty[msg.sender].withdrawed
+        );
+      }
+    }
+  	// 目標未達：ether
+  	else {
+      if (fundersProperty[msg.sender].paymentEther > 0) {
+        if (msg.sender.call.value(fundersProperty[msg.sender].paymentEther)()) {
+          fundersProperty[msg.sender].withdrawed = true;
+        }
+        
+        // 目標に到達しなかったため、Etherを返金する
+        WithdrawalEther(
+          msg.sender,
+          fundersProperty[msg.sender].paymentEther,
+          fundersProperty[msg.sender].withdrawed
+        );
+      }
+    }
+  }
+}
