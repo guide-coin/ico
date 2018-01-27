@@ -296,7 +296,7 @@ contract GuideCrowdSale is owned {
     uint _transferableToken,
     uint _amountOfTokenPerEther,
     GuideToken _addressOfTokenUsedAsReward
-  ) {
+  ) public {
     _amountOfTokenPerEther = _amountOfTokenPerEther;
   	
     fundingGoal = _fundingGoalInEthers * 1 ether;
@@ -308,7 +308,7 @@ contract GuideCrowdSale is owned {
 
   // ************** function *****************
   // Receive ETH(無名関数(ETH受け取り))
-  function () payable {
+  function () payable public {
     // Ignore if before or expired(開始前または期限切れの場合は例外)
     if (!isOpened || now < startTime || now >= deadline) revert();
     // 0.1ETH以下であれば購入させない
@@ -332,7 +332,7 @@ contract GuideCrowdSale is owned {
   // ************** function *****************
   // start(If it's within a few expected number, start)
   // (開始(トークンが予定数以上あるなら開始))
-  	function start(uint _durationInDays) onlyOwner {
+  	function start(uint _durationInDays) onlyOwner public {
     if (fundingGoal == 0
     	|| basePrice == 0
     	|| transferableToken == 0
@@ -359,7 +359,7 @@ contract GuideCrowdSale is owned {
   // ************** function *****************
   // Exchange rate(Special Price in time zone)
   // (交換レート(開始時刻からの経過時間が小さいほどお得))
-  function currentSwapRate() constant returns(uint) {
+  function currentSwapRate() public constant returns(uint) {
     // 1 days
   	if (startTime + 1440 minutes > now) {
       return 20; // 20%
@@ -377,7 +377,7 @@ contract GuideCrowdSale is owned {
   // ************** function *****************
   // Remaining time(minute) and Defference from target(eth), check token method
   // (残り時間(分単位)と目標との差額(eth単位),トークン確認用メソッド)
-  function getRemainingTimeEthToken()
+  function getRemainingTimeEthToken() public
     constant returns(uint min, uint shortage, uint remainToken)
   {
     if(now < deadline) {
@@ -390,7 +390,7 @@ contract GuideCrowdSale is owned {
   // ************** function *****************
   // Final reach confirmation(Available after period)
   // (目標到達確認(期限後に実施可能))
-  function checkGoalReached() afterDeadline {
+  function checkGoalReached() afterDeadline public {
     if (isOpened && now >= deadline && owner == msg.sender) {
       // 集まったETHと目標ETHを比較
       if (this.balance >= fundingGoal) {
@@ -402,8 +402,8 @@ contract GuideCrowdSale is owned {
   }
 
   // ************** function *****************
-  // (12) オーナー用の引き出しメソッド(セール終了後に実行可能)
-  function withdrawalOwner() onlyOwner {
+  // オーナー用の引き出しメソッド(セール終了後に実行可能)
+  function withdrawalOwner() onlyOwner public {
     // Ignore if before or expired(開始前または期限切れの場合は例外)
     if (isOpened || now < deadline || owner != msg.sender) revert();
 
@@ -417,7 +417,7 @@ contract GuideCrowdSale is owned {
         // イベントを発火
         WithdrawalEther(msg.sender, amount, ok);
       }
-      // 余ったトークン ### ここの条件あたりが問題部分 ###
+      // 余ったトークン
     	uint val = transferableToken - soldToken;
       if (val > 0) {
       	// 余ったトークンはオーナーに戻す
@@ -436,8 +436,8 @@ contract GuideCrowdSale is owned {
 
   
   // ************** function *****************
-  // (13) 資金提供者用の引き出しメソッド(セール終了後に実行可能)
-  function withdrawal() {
+  // 資金提供者用の引き出しメソッド(セール終了後に実行可能)
+  function withdrawal() public {
     // Ignore if before or expired(開始前または期限切れの場合は例外)
     if (isOpened || now < deadline) revert();
 
