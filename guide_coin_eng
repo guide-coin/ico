@@ -296,7 +296,7 @@ contract GuideCrowdSale is owned {
     uint _transferableToken,
     uint _amountOfTokenPerEther,
     GuideToken _addressOfTokenUsedAsReward
-  ) {
+  ) public {
     _amountOfTokenPerEther = _amountOfTokenPerEther;
   	
     fundingGoal = _fundingGoalInEthers * 1 ether;
@@ -308,7 +308,7 @@ contract GuideCrowdSale is owned {
 
   // ************** function *****************
   // Receive ETH
-  function () payable {
+  function () payable public {
     // Ignore if before or expired
     if (!isOpened || now < startTime || now >= deadline) revert();
     // 0.1ETH UP
@@ -330,7 +330,7 @@ contract GuideCrowdSale is owned {
 
   // ************** function *****************
   // start(If it's within a few expected number, start)
-  	function start(uint _durationInDays) onlyOwner {
+  	function start(uint _durationInDays) onlyOwner public {
     if (fundingGoal == 0
     	|| basePrice == 0
     	|| transferableToken == 0
@@ -355,7 +355,7 @@ contract GuideCrowdSale is owned {
 
   // ************** function *****************
   // Exchange rate(Special Price in time zone)
-  function currentSwapRate() constant returns(uint) {
+  function currentSwapRate() public constant returns(uint) {
     // 1 days
   	if (startTime + 1440 minutes > now) {
       return 20; // 20%
@@ -372,7 +372,7 @@ contract GuideCrowdSale is owned {
 
   // ************** function *****************
   // Remaining time(minute) and Defference from target(eth), check token method
-  function getRemainingTimeEthToken()
+  function getRemainingTimeEthToken() public
     constant returns(uint min, uint shortage, uint remainToken)
   {
     if(now < deadline) {
@@ -384,7 +384,7 @@ contract GuideCrowdSale is owned {
 
   // ************** function *****************
   // Final reach confirmation(Available after period)
-  function checkGoalReached() afterDeadline {
+  function checkGoalReached() afterDeadline public {
     if (isOpened && now >= deadline && owner == msg.sender) {
       if (this.balance >= fundingGoal) {
         fundingGoalReached = true;
@@ -395,7 +395,7 @@ contract GuideCrowdSale is owned {
   }
 
   // ************** function *****************
-  function withdrawalOwner() onlyOwner {
+  function withdrawalOwner() onlyOwner public {
     // Ignore if before or expired
     if (isOpened || now < deadline || owner != msg.sender) revert();
 
@@ -426,7 +426,7 @@ contract GuideCrowdSale is owned {
   
   // ************** function *****************
   // Funders
-  function withdrawal() {
+  function withdrawal() public {
     // Ignore if before or expired
     if (isOpened || now < deadline) revert();
 
